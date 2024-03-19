@@ -1,0 +1,392 @@
+---
+title: "Project Based - Toward a Data Mining Portfolio EXTRA CREDIT"
+author: "Diane Hoang"
+date: "2024-03-19"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+#load the mlbench package which has the BreastCancer data set
+
+library(mlbench)
+
+
+# if you don't have any required package, use the install.packages() command
+# load the data set
+data(BreastCancer)
+str(BreastCancer)
+```
+
+```{r}
+## Preliminary step. Reviewing the Data Structure. Removing missing values. Remove id column as well since we don't need to analyze that column. factor the response variable.
+
+dim(BreastCancer)
+
+str(BreastCancer)
+
+missing_values <- is.na(BreastCancer)
+
+# Count missing values
+num_missing <- sum(is.na(BreastCancer))
+
+print(num_missing)
+
+# Remove missing values
+BreastCancer <- na.omit(BreastCancer)
+
+print(BreastCancer)
+
+# Remove Id column
+BreastCancer <- BreastCancer[, -1]
+
+# Now, the Class variable is converted into a factor since we need to do this in order to do classification model.
+## 1 = Benign and 0 = Malignant
+# Convert "Class" into a factor with levels 1 and 0
+BreastCancer$Class <- factor(BreastCancer$Class, levels = c("benign", "malignant"), labels = c(1, 0))
+
+str(BreastCancer)
+
+
+```
+
+```{r}
+## After reviewing the data we have determined that Class Variable will be the response variable to analyze. This data focus is to determine if the tumor is benign or malignant.
+
+## We will need to determine if the data is balanced by reviewing the count of the class column.
+
+
+
+Class_counts <- table(BreastCancer$Class)
+print(Class_counts)
+```
+
+```{r}
+## Since the "class" count is not balanced we will use random sampling method to randomly select from 1 until we reach a count of 239 like 0.
+
+# Separate the data into two data frames 
+class_0 <- BreastCancer[BreastCancer$Class == 0, ]
+class_1 <- BreastCancer[BreastCancer$Class == 1, ]
+
+minority_size <- nrow(class_0)
+
+# Randomly sample rows from the majority class to match the minority class size
+class_1_sampled <- class_1[sample(nrow(class_1), minority_size), ]
+
+# Combine the sampled majority class with the minority class
+balanced_data <- rbind(class_1_sampled, class_0)
+
+# Shuffle the rows to randomize the order
+balanced_data <- balanced_data[sample(nrow(balanced_data)), ]
+
+# Check the class distribution after balancing
+table(balanced_data$Class)
+```
+```{r}
+## Class is now balanced for a count of 239 each for 0 and 1. Now we will create a training and test data. We will do a standard 70/30 split.
+
+library(caret)
+
+# Create data partition indices
+train_index <- createDataPartition(balanced_data$Class, p = 0.7, list = FALSE)
+
+# Create training and test sets 
+train <- balanced_data[train_index, ]
+test <- balanced_data[-train_index, ]
+
+# Convert ordinal factors to numeric
+train$Cl.thickness <- as.numeric(train$Cl.thickness)
+test$Cl.thickness <- as.numeric(test$Cl.thickness)
+
+# Check dimensions of train and test sets
+dim(train)
+dim(test)
+
+str(train)
+str(test)
+
+```
+
+
+```{r}
+
+## We will run 4 different types of model. Logistic Regression, Naive Bayes, SVM and Random Forest. Random Forest needs the response variable to be in factored form so we will do that after these models in order to not ruin the data for these 3 model.
+
+## Logistic regression did not perform well for this data. Probabaly because there is ordinal data.
+
+library(caret)
+
+# Fit logistic regression model
+model <- glm(Class ~ ., data = train, family = binomial)
+
+# Predict probabilities for the training data
+train_probabilities <- predict(model, newdata = train, type = "response")
+
+# Convert probabilities to class predictions for training data
+train_predictions <- ifelse(train_probabilities >= 0.5, 1, 0)  # Assuming 0.5 threshold for binary classification
+
+# Predict probabilities for the test data
+test_probabilities <- predict(model, newdata = test, type = "response")
+
+# Convert probabilities to class predictions for test data
+test_predictions <- ifelse(test_probabilities >= 0.5, 1, 0)  # Assuming 0.5 threshold for binary classification
+
+# Function to compute performance measures
+compute_performance <- function(predictions, true_labels) {
+  # Create confusion matrix
+  conf_mat <- confusionMatrix(as.factor(predictions), as.factor(true_labels))
+  
+  # Extract performance measures
+  accuracy <- conf_mat$overall['Accuracy']
+  recall <- conf_mat$byClass['Sensitivity']
+  precision <- conf_mat$byClass['Pos Pred Value']
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  
+  # Return performance measures
+  return(list(conf_mat = conf_mat$table,
+              accuracy = accuracy,
+              recall = recall,
+              precision = precision,
+              f1_score = f1_score))
+}
+
+# Compute performance measures for training data
+train_performance <- compute_performance(train_predictions, train$Class)
+
+# Compute performance measures for test data
+test_performance <- compute_performance(test_predictions, test$Class)
+
+# Print performance measures for training data
+cat("Performance measures for training data:\n")
+cat("Confusion Matrix:\n")
+print(train_performance$conf_mat)
+cat("\nAccuracy:", train_performance$accuracy)
+cat("\nRecall (Sensitivity):", train_performance$recall)
+cat("\nPrecision (Positive Predictive Value):", train_performance$precision)
+cat("\nF1-score:", train_performance$f1_score)
+
+# Print performance measures for test data
+cat("\n\nPerformance measures for test data:\n")
+cat("Confusion Matrix:\n")
+print(test_performance$conf_mat)
+cat("\nAccuracy:", test_performance$accuracy)
+cat("\nRecall (Sensitivity):", test_performance$recall)
+cat("\nPrecision (Positive Predictive Value):", test_performance$precision)
+cat("\nF1-score:", test_performance$f1_score)
+
+```
+```{r}
+## Naive Bayes: Did well, but concerned about overfitting.
+
+# Load the required library
+library(e1071)
+
+# Fit Naive Bayes model to the training data
+nb_model <- naiveBayes(Class ~ ., data = train)
+
+# Make predictions on the train and test data
+train_predictions <- predict(nb_model, train)
+test_predictions <- predict(nb_model, test)
+
+# Evaluate model performance on train data
+train_confusion_matrix <- table(train_predictions, train$Class)
+train_accuracy <- sum(diag(train_confusion_matrix)) / sum(train_confusion_matrix)
+train_precision <- train_confusion_matrix[2, 2] / sum(train_confusion_matrix[, 2])
+train_recall <- train_confusion_matrix[2, 2] / sum(train_confusion_matrix[2, ])
+train_f1_score <- 2 * train_precision * train_recall / (train_precision + train_recall)
+
+# Evaluate model performance on test data
+test_confusion_matrix <- table(test_predictions, test$Class)
+test_accuracy <- sum(diag(test_confusion_matrix)) / sum(test_confusion_matrix)
+test_precision <- test_confusion_matrix[2, 2] / sum(test_confusion_matrix[, 2])
+test_recall <- test_confusion_matrix[2, 2] / sum(test_confusion_matrix[2, ])
+test_f1_score <- 2 * test_precision * test_recall / (test_precision + test_recall)
+
+# Print performance measures for train data
+cat("Performance measures for train data:\n")
+cat("Confusion Matrix:\n", train_confusion_matrix, "\n")
+cat("\nAccuracy:", train_accuracy)
+cat("\nPrecision:", train_precision)
+cat("\nRecall (Sensitivity):", train_recall)
+cat("\nF1-score:", train_f1_score, "\n")
+
+# Print performance measures for test data
+cat("\nPerformance measures for test data:\n")
+cat("Confusion Matrix:\n", test_confusion_matrix, "\n")
+cat("\nAccuracy:", test_accuracy)
+cat("\nPrecision:", test_precision)
+cat("\nRecall (Sensitivity):", test_recall)
+cat("\nF1-score:", test_f1_score)
+```
+```{r}
+
+# Load the required library
+library(randomForest)
+
+# Assuming you have a training dataset named 'train' and a test dataset named 'test'
+
+# Fit Random Forest model
+rf_model <- randomForest(Class ~ ., data = train)
+
+# Make predictions on the training data
+train_predictions <- predict(rf_model, train)
+
+# Evaluate model performance on the training data
+train_confusion_matrix <- table(train_predictions, train$Class)
+train_accuracy <- sum(diag(train_confusion_matrix)) / sum(train_confusion_matrix)
+train_precision <- train_confusion_matrix[2, 2] / sum(train_confusion_matrix[, 2])
+train_recall <- train_confusion_matrix[2, 2] / sum(train_confusion_matrix[2, ])
+train_f1_score <- 2 * train_precision * train_recall / (train_precision + train_recall)
+
+# Print performance measures for the training data
+cat("Performance measures for training data:\n")
+cat("Confusion Matrix:\n", train_confusion_matrix, "\n")
+cat("\nAccuracy:", train_accuracy)
+cat("\nPrecision:", train_precision)
+cat("\nRecall (Sensitivity):", train_recall)
+cat("\nF1-score:", train_f1_score)
+
+# Make predictions on the test data
+test_predictions <- predict(rf_model, test)
+
+# Evaluate model performance on the test data
+test_confusion_matrix <- table(test_predictions, test$Class)
+test_accuracy <- sum(diag(test_confusion_matrix)) / sum(test_confusion_matrix)
+test_precision <- test_confusion_matrix[2, 2] / sum(test_confusion_matrix[, 2])
+test_recall <- test_confusion_matrix[2, 2] / sum(test_confusion_matrix[2, ])
+test_f1_score <- 2 * test_precision * test_recall / (test_precision + test_recall)
+
+# Print performance measures for the test data
+cat("\n\nPerformance measures for test data:\n")
+cat("Confusion Matrix:\n", test_confusion_matrix, "\n")
+cat("\nAccuracy:", test_accuracy)
+cat("\nPrecision:", test_precision)
+cat("\nRecall (Sensitivity):", test_recall)
+cat("\nF1-score:", test_f1_score)
+
+
+```
+```{r}
+## SVM Model
+
+# Load the required library
+library(e1071)
+
+# Fit SVM model
+svm_model <- svm(Class ~ ., data = train)
+
+# Make predictions on the train data
+svm_train_predictions <- predict(svm_model, train)
+
+# Evaluate model performance on train data
+svm_train_confusion_matrix <- table(svm_train_predictions, train$Class)
+train_accuracy <- sum(diag(svm_train_confusion_matrix)) / sum(svm_train_confusion_matrix)
+train_precision <- svm_train_confusion_matrix[2, 2] / sum(svm_train_confusion_matrix[, 2])
+train_recall <- svm_train_confusion_matrix[2, 2] / sum(svm_train_confusion_matrix[2, ])
+train_f1_score <- 2 * train_precision * train_recall / (train_precision + train_recall)
+
+# Print performance measures for train data
+cat("Performance measures for train data:\n")
+cat("Confusion Matrix:\n", svm_train_confusion_matrix, "\n")
+cat("\nAccuracy:", train_accuracy)
+cat("\nPrecision:", train_precision)
+cat("\nRecall (Sensitivity):", train_recall)
+cat("\nF1-score:", train_f1_score)
+
+# Make predictions on the test data
+svm_test_predictions <- predict(svm_model, test)
+
+# Evaluate model performance on test data
+svm_test_confusion_matrix <- table(svm_test_predictions, test$Class)
+test_accuracy <- sum(diag(svm_test_confusion_matrix)) / sum(svm_test_confusion_matrix)
+test_precision <- svm_test_confusion_matrix[2, 2] / sum(svm_test_confusion_matrix[, 2])
+test_recall <- svm_test_confusion_matrix[2, 2] / sum(svm_test_confusion_matrix[2, ])
+test_f1_score <- 2 * test_precision * test_recall / (test_precision + test_recall)
+
+# Print performance measures for test data
+cat("\n\nPerformance measures for test data:\n")
+cat("Confusion Matrix:\n", svm_test_confusion_matrix, "\n")
+cat("\nAccuracy:", test_accuracy)
+cat("\nPrecision:", test_precision)
+cat("\nRecall (Sensitivity):", test_recall)
+cat("\nF1-score:", test_f1_score)
+
+
+```
+```{r}
+## Combine the classifiers in an ensemble
+# Load required libraries
+library(caret)
+library(e1071)
+library(randomForest)
+
+# Assuming you have your data loaded as train and test datasets
+
+# Fit models
+logistic_model <- glm(Class ~ ., data = train, family = "binomial")
+nb_model <- naiveBayes(Class ~ ., data = train)
+svm_model <- svm(Class ~ ., data = train)
+rf_model <- randomForest(Class ~ ., data = train)
+
+# Make predictions for each model
+logistic_predictions_train <- predict(logistic_model, newdata = train, type = "response")
+nb_predictions_train <- predict(nb_model, newdata = train, type = "raw")
+svm_predictions_train <- predict(svm_model, newdata = train, probability = TRUE)
+rf_predictions_train <- predict(rf_model, newdata = train, type = "response")
+
+# Combine predictions into a data frame
+combined_predictions_train <- data.frame(
+  Logistic = logistic_predictions_train,
+  NaiveBayes = nb_predictions_train,
+  SVM = svm_predictions_train,
+  RandomForest = rf_predictions_train
+)
+
+# Take a majority vote for each observation
+ensemble_predictions_train <- apply(combined_predictions_train, 1, function(row) {
+  majority_vote <- ifelse(sum(row == "1") >= sum(row == "0"), "1", "0")
+})
+
+# Convert predictions to factors with the same levels as train$Class
+ensemble_predictions_train <- factor(ensemble_predictions_train, levels = levels(train$Class))
+
+# Evaluate model performance for training data
+ensemble_confusion_matrix_train <- confusionMatrix(ensemble_predictions_train, train$Class)
+print("Performance measures for train data:")
+print(ensemble_confusion_matrix_train)
+
+# Make predictions for test data
+logistic_predictions_test <- predict(logistic_model, newdata = test, type = "response")
+nb_predictions_test <- predict(nb_model, newdata = test, type = "raw")
+svm_predictions_test <- predict(svm_model, newdata = test, probability = TRUE)
+rf_predictions_test <- predict(rf_model, newdata = test, type = "response")
+
+# Combine predictions into a data frame for test data
+combined_predictions_test <- data.frame(
+  Logistic = logistic_predictions_test,
+  NaiveBayes = nb_predictions_test,
+  SVM = svm_predictions_test,
+  RandomForest = rf_predictions_test
+)
+
+# Take a majority vote for each observation for test data
+ensemble_predictions_test <- apply(combined_predictions_test, 1, function(row) {
+  majority_vote <- ifelse(sum(row == "1") >= sum(row == "0"), "1", "0")
+})
+
+# Convert predictions to factors with the same levels as test$Class
+ensemble_predictions_test <- factor(ensemble_predictions_test, levels = levels(test$Class))
+
+
+# Evaluate model performance for test data
+ensemble_confusion_matrix_test <- confusionMatrix(ensemble_predictions_test, test$Class)
+print("Performance measures for test data:")
+print(ensemble_confusion_matrix_test)
+
+
+
+```
+
+```
+
